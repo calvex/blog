@@ -17,31 +17,26 @@ test('GitHub Pages workflow follows the safe deployment contract', async () => {
   assert.ok(Object.hasOwn(workflow.on, 'workflow_dispatch'));
   assert.deepEqual(workflow.permissions, { contents: 'read' });
   assert.deepEqual(workflow.concurrency, {
-    group: 'pages',
+    group: 'pages-${{ github.ref }}',
     'cancel-in-progress': false,
   });
 
   assert.equal(build['runs-on'], 'ubuntu-latest');
   assert.ok(!Object.hasOwn(build, 'permissions'));
-  assert.deepEqual(
-    build.steps.filter((step) => step.uses).map((step) => step.uses),
-    [
-      'actions/checkout@v5',
-      'actions/setup-node@v6',
-      'actions/configure-pages@v5',
-      'actions/upload-pages-artifact@v4',
-    ],
-  );
-  const setupNode = build.steps.find((step) => step.uses === 'actions/setup-node@v6');
-  assert.deepEqual(setupNode.with, { 'node-version': 24, cache: 'npm' });
-  assert.deepEqual(build.steps.filter((step) => step.run).map((step) => step.run), [
-    'npm ci',
-    'npm test',
+  assert.deepEqual(build.steps, [
+    { uses: 'actions/checkout@v5' },
+    {
+      uses: 'actions/setup-node@v6',
+      with: { 'node-version': 24, cache: 'npm' },
+    },
+    { uses: 'actions/configure-pages@v5' },
+    { run: 'npm ci' },
+    { run: 'npm test' },
+    {
+      uses: 'actions/upload-pages-artifact@v4',
+      with: { path: './public' },
+    },
   ]);
-  const uploadArtifact = build.steps.find(
-    (step) => step.uses === 'actions/upload-pages-artifact@v4',
-  );
-  assert.equal(uploadArtifact.with.path, './public');
 
   assert.deepEqual(deploy.needs, 'build');
   assert.equal(deploy['runs-on'], 'ubuntu-latest');
