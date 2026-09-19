@@ -1,0 +1,6 @@
+scheme: Muse
+menu:
+  home: / || fa fa-home
+  archives: /archives/ || fa fa-archive
+sidebar:
+  position: left
