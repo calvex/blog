@@ -61,15 +61,16 @@ function hasClass(attributes, expectedClass) {
   return getAttribute(attributes, 'class')?.split(/\s+/).includes(expectedClass);
 }
 
-function extractPostBody(html, pageName) {
+function extractPostBody(html, pageName, { isPage = false } = {}) {
   const postBody = findStartTag(
     html,
     (tag, attributes) => tag.toLowerCase() === 'div'
       && hasClass(attributes, 'post-body')
-      && getAttribute(attributes, 'itemprop') === 'articleBody',
+      && (isPage || getAttribute(attributes, 'itemprop') === 'articleBody'),
   );
 
-  assert.ok(postBody, `${pageName} 缺少 .post-body[itemprop="articleBody"] 正文区域`);
+  const selector = isPage ? '.post-body' : '.post-body[itemprop="articleBody"]';
+  assert.ok(postBody, `${pageName} 缺少 ${selector} 正文区域`);
 
   const divPattern = /<\/?div\b[^>]*>/gi;
   divPattern.lastIndex = postBody.contentIndex;
@@ -125,6 +126,23 @@ test('正文提取排除 meta 和 sibling，并保留嵌套 div 内容', () => {
   assert.doesNotMatch(body, /sibling 标记/);
 });
 
+test('静态页面从 post-body 提取正文，文章仍要求 articleBody', () => {
+  const page = [
+    '<meta content="meta 标记">',
+    '<nav><a href="/">导航返回首页</a></nav>',
+    '<div class="post-body">',
+    '<div>静态页面正文</div>',
+    '</div>',
+    '<footer><a href="/">页脚返回首页</a></footer>',
+  ].join('');
+  const body = extractPostBody(page, 'page', { isPage: true });
+
+  assert.match(body, /静态页面正文/);
+  assert.doesNotMatch(body, /meta 标记|导航返回首页|页脚返回首页/);
+  assert.equal(extractAnchors(body).length, 0);
+  assert.throws(() => extractPostBody(page, 'article'), /articleBody/);
+});
+
 test('锚点解析只接受同源真实 href，并支持单引号和内部标签', () => {
   const anchors = extractAnchors([
     '<a data-href="/2017/12/19/Java8字符串拼接/">data href</a>',
@@ -176,7 +194,7 @@ test('生成物保留自定义域名', async () => {
 
 test('关于页保留页面与正文内容', async () => {
   const about = await readFile(new URL('about/index.html', root), 'utf8');
-  const postBody = extractPostBody(about, 'about');
+  const postBody = extractPostBody(about, 'about', { isPage: true });
 
   assert.match(about, /<html/i);
   assert.match(about, /about/i);
@@ -185,7 +203,7 @@ test('关于页保留页面与正文内容', async () => {
 
 test('404 页面提供返回首页的正文链接', async () => {
   const notFound = await readFile(new URL('404.html', root), 'utf8');
-  const postBody = extractPostBody(notFound, '404');
+  const postBody = extractPostBody(notFound, '404', { isPage: true });
 
   assert.match(notFound, /<html/i);
   assert.match(notFound, /个人博客/);

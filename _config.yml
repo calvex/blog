@@ -13,7 +13,7 @@ timezone: ''
 
 # URL
 ## If your site is put in a subdirectory, set url as 'http://yoursite.com/child' and root as '/child/'
-url: http://aicool.org
+url: https://aicool.org
 root: /
 permalink: :year/:month/:day/:title/
 permalink_defaults:
@@ -76,8 +76,8 @@ meta_generator: true
 ## http://momentjs.com/docs/#/displaying/format/
 date_format: YYYY-MM-DD
 time_format: HH:mm:ss
-## Use post's date for updated date unless set in front-matter
-use_date_for_updated: false
+## Use file modification time for updated date unless set in front-matter
+updated_option: mtime
 
 # Pagination
 ## Set per_page to 0 to disable pagination
