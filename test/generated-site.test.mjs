@@ -64,23 +64,26 @@ function hasClass(attributes, expectedClass) {
 function extractPostBody(html, pageName) {
   const postBody = findStartTag(
     html,
-    (_, attributes) => hasClass(attributes, 'post-body')
+    (tag, attributes) => tag.toLowerCase() === 'div'
+      && hasClass(attributes, 'post-body')
       && getAttribute(attributes, 'itemprop') === 'articleBody',
   );
 
   assert.ok(postBody, `${pageName} 缺少 .post-body[itemprop="articleBody"] 正文区域`);
 
-  const postFooter = findStartTag(
-    html,
-    (_, attributes) => hasClass(attributes, 'post-footer'),
-    postBody.contentIndex,
-  );
-  const articleEnd = html.search(/<\/article\s*>/i, postBody.contentIndex);
-  const contentEnds = [postFooter?.index, articleEnd].filter((index) => index >= 0);
+  const divPattern = /<\/?div\b[^>]*>/gi;
+  divPattern.lastIndex = postBody.contentIndex;
+  let depth = 1;
+  let match;
 
-  assert.ok(contentEnds.length > 0, `${pageName} 缺少 post-footer 或 </article> 正文结束标记`);
+  while ((match = divPattern.exec(html)) !== null) {
+    depth += match[0].startsWith('</') ? -1 : 1;
+    if (depth === 0) {
+      return html.slice(postBody.contentIndex, match.index);
+    }
+  }
 
-  return html.slice(postBody.contentIndex, Math.min(...contentEnds));
+  assert.fail(`${pageName} 的 .post-body 正文区域缺少闭合 div`);
 }
 
 function extractAnchors(html) {
@@ -98,13 +101,41 @@ function extractAnchors(html) {
   return anchors;
 }
 
-function normalizePathname(href) {
+function normalizeInternalPathname(href) {
   try {
-    return decodeURIComponent(new URL(href, siteOrigin).pathname);
+    const url = new URL(href, siteOrigin);
+
+    return url.origin === siteOrigin ? decodeURIComponent(url.pathname) : null;
   } catch {
     return null;
   }
 }
+
+test('正文提取排除 meta 和 sibling，并保留嵌套 div 内容', () => {
+  const body = extractPostBody([
+    '<meta content="meta 标记">',
+    '<div class="post-body" itemprop="articleBody">',
+    '<div>嵌套 div 正文</div>',
+    '</div>',
+    '<p>sibling 标记</p>',
+  ].join(''), 'helper');
+
+  assert.match(body, /嵌套 div 正文/);
+  assert.doesNotMatch(body, /meta 标记/);
+  assert.doesNotMatch(body, /sibling 标记/);
+});
+
+test('锚点解析只接受同源真实 href，并支持单引号和内部标签', () => {
+  const anchors = extractAnchors([
+    '<a data-href="/2017/12/19/Java8字符串拼接/">data href</a>',
+    "<a href='/2017/12/19/Java8字符串拼接/'><span>真实链接</span></a>",
+  ].join(''));
+
+  assert.equal(anchors.length, 1);
+  assert.equal(normalizeInternalPathname(anchors[0].href), '/2017/12/19/Java8字符串拼接/');
+  assert.match(anchors[0].content.replace(/<[^>]*>/g, ''), /真实链接/);
+  assert.equal(normalizeInternalPathname('https://outside.example/2017/12/19/Java8字符串拼接/'), null);
+});
 
 for (const { route, title, marker } of posts) {
   test(`${route} 生成页保留标题与正文标记`, async () => {
@@ -125,8 +156,8 @@ test('首页和归档页均链接到所有保留文章', async () => {
     readFile(new URL('index.html', root), 'utf8'),
     readFile(new URL('archives/index.html', root), 'utf8'),
   ]);
-  const indexPaths = new Set(extractAnchors(index).map(({ href }) => normalizePathname(href)));
-  const archivePaths = new Set(extractAnchors(archives).map(({ href }) => normalizePathname(href)));
+  const indexPaths = new Set(extractAnchors(index).map(({ href }) => normalizeInternalPathname(href)));
+  const archivePaths = new Set(extractAnchors(archives).map(({ href }) => normalizeInternalPathname(href)));
 
   for (const { route } of posts) {
     const permalink = `/${route}/`;
@@ -154,13 +185,14 @@ test('关于页保留页面与正文内容', async () => {
 
 test('404 页面提供返回首页的正文链接', async () => {
   const notFound = await readFile(new URL('404.html', root), 'utf8');
+  const postBody = extractPostBody(notFound, '404');
 
   assert.match(notFound, /<html/i);
   assert.match(notFound, /个人博客/);
   assert.match(notFound, /404/);
   assert.ok(
-    extractAnchors(notFound).some(({ href, content }) => (
-      normalizePathname(href) === '/' && content.replace(/<[^>]*>/g, '').includes('返回首页')
+    extractAnchors(postBody).some(({ href, content }) => (
+      href.trim() === '/' && content.replace(/<[^>]*>/g, '').includes('返回首页')
     )),
     '404 正文应提供 href 为 / 且可见文本含“返回首页”的锚点',
   );
